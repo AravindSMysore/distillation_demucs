@@ -60,6 +60,8 @@ class KTSolver(object):
             kw = getattr(args.augment, aug)
             if kw.proba:
                 augments.append(getattr(augment, aug.capitalize())(**kw))
+        if args.downsample_factor != 1:
+            augments.append(augment.Downsample(args.downsample_factor))
         self.augment = torch.nn.Sequential(*augments)
 
         xp = get_xp()

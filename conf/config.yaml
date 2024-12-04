@@ -37,6 +37,7 @@ test:
   metric: 'loss'  # metric used for best model selection on the valid set, can also be nsdr
   nonhq:   # path to non hq MusDB for evaluation
 
+downsample_factor: 2
 epochs: 2
 batch_size: 4
 max_batches:  # limit the number of batches per epoch, useful for debugging
@@ -54,7 +55,7 @@ seed: 42
 debug: false
 valid_apply: true
 flag:
-save_every:
+save_every: 1
 weights: [1., 1., 1., 1.]  # weights over each source for the training/valid loss.
 
 augment:

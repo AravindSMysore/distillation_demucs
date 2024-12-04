@@ -109,3 +109,20 @@ class Scale(nn.Module):
             scales = th.empty(batch, streams, 1, 1, device=device).uniform_(self.min, self.max)
             wav *= scales
         return wav
+
+
+class Downsample(nn.Module):
+    """
+    Downsample the time dimension of waveforms by a specified factor.
+    """
+    def __init__(self, downsample_factor=2):
+        super().__init__()
+        assert int(downsample_factor) == downsample_factor, "Downsample factor must be an integer"
+        self.downsample_factor = int(downsample_factor)
+
+    def forward(self, wav):
+        batch, streams, channels, time = wav.size()
+        if self.training:
+            # Downsample by taking every nth timestep where n is the downsample factor
+            wav = wav[:, :, :, ::self.downsample_factor]
+        return wav
