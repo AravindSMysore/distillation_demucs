@@ -12,6 +12,7 @@ from dora.utils import write_and_rename
 from dora.log import LogProgress, bold
 import torch
 import torch.nn.functional as F
+from tqdm import tqdm
 
 from demucs import augment, distrib, states, pretrained
 from demucs.apply import apply_model
@@ -60,9 +61,14 @@ class KTSolver(object):
             kw = getattr(args.augment, aug)
             if kw.proba:
                 augments.append(getattr(augment, aug.capitalize())(**kw))
-        if args.downsample_factor != 1:
-            augments.append(augment.Downsample(args.downsample_factor))
+        # if args.downsample_factor != 1:
+        #     augments.append(augment.Downsample(args.downsample_factor))
         self.augment = torch.nn.Sequential(*augments)
+
+        self.test_augs = []
+        if args.downsample_factor != 1:
+            self.test_augs.append(augment.Downsample(args.downsample_factor))
+        self.test_augment = torch.nn.Sequential(*self.test_augs)
 
         xp = get_xp()
         self.folder = xp.folder
@@ -192,6 +198,7 @@ class KTSolver(object):
         epoch = 0
         for epoch in range(len(self.history), self.args.epochs):
             # Train one epoch
+            # logger.info(bold(f"Epoch {epoch+1}/{self.args.epochs}"))
             self.student_model.train()  # Turn on BatchNorm & Dropout
             metrics = {}
             logger.info('-' * 70)
@@ -199,7 +206,7 @@ class KTSolver(object):
             metrics['train'] = self._run_one_epoch(epoch)
             formatted = self._format_train(metrics['train'])
             logger.info(
-                bold(f'Train Summary | Epoch {epoch + 1} | {_summary(formatted)}'))
+                bold(f'Train Summary | Epoch {epoch + 1}/{self.args.epochs} | {_summary(formatted)}'))
 
             # Cross validation
             logger.info('-' * 70)
@@ -280,6 +287,7 @@ class KTSolver(object):
                 compute_sdr = self.args.test.sdr and is_last
                 with states.swap_state(self.student_model, state):
                     with torch.no_grad():
+                        self.model = self.student_model
                         metrics['test'] = evaluate(self, compute_sdr=compute_sdr)
                 formatted = self._format_test(metrics['test'])
                 logger.info(bold(f"Test Summary | Epoch {epoch + 1} | {_summary(formatted)}"))
@@ -306,17 +314,23 @@ class KTSolver(object):
         logprog = LogProgress(logger, data_loader, total=total,
                               updates=self.args.misc.num_prints, name=name)
         averager = EMA()
-
-        for idx, sources in enumerate(logprog):
+        for idx, sources in tqdm(enumerate(logprog), total=total):
             sources = sources.to(self.device)
+            num_timesteps = sources.shape[-1]
+            # bs, sources, channels, timesteps
+            sources = sources[:, :, :, :num_timesteps // 2]
             if train:
                 sources = self.augment(sources)
-                mix = sources.sum(dim=1)
+                mix_og = sources.sum(dim=1)
                 with torch.no_grad():
-                    new_sources = apply_model(self.teacher_model, mix, split=self.args.test.split, overlap=0)
+                    new_sources = apply_model(self.teacher_model, mix_og, split=self.args.test.split, overlap=0)
                     assert new_sources.shape == sources.shape, (new_sources.shape, sources.shape)
+                new_sources = self.test_augment(new_sources)
+                sources = self.test_augment(sources)
+                mix = sources.sum(dim=1)
                 sources = new_sources
             else:
+                sources = self.test_augment(sources)
                 mix = sources[:, 0]
                 sources = sources[:, 1:]
 
